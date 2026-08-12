@@ -1,12 +1,16 @@
 # ============================================================
 # ETAPA 3A
-# ComfyUI + Custom Nodes + Qwen Rapid AIO
+# ComfyUI + Torch CUDA 13
+# + Custom Nodes
+# + Qwen Rapid AIO
+#
+# Download otimizado via Hugging Face + hf-xet
 #
 # IMPORTANTE:
-# Não usar FROM registry.runpod.net/... da Etapa 2.
-# O RunPod Build retorna 401 ao tentar acessar essa imagem.
+# HF_TOKEN deve estar configurado no RunPod como Secret
+# com a chave:
 #
-# As etapas anteriores serão reaproveitadas pelo cache do BuildKit.
+# HF_TOKEN
 # ============================================================
 
 FROM runpod/worker-comfyui:5.8.4-base
@@ -70,72 +74,90 @@ RUN git clone \
     -r /comfyui/custom_nodes/ComfyUI-KJNodes/requirements.txt
 
 # ============================================================
-# 7. Diretório do checkpoint
+# 7. Hugging Face + Xet
+#
+# hf-xet é o mecanismo moderno de transferência do Hugging Face.
+# ============================================================
+
+RUN pip install --no-cache-dir \
+    "huggingface_hub[hf_xet]"
+
+# ============================================================
+# 8. Configuração de download de alta performance
+# ============================================================
+
+ENV HF_XET_HIGH_PERFORMANCE=1
+ENV HF_XET_NUM_CONCURRENT_RANGE_GETS=64
+ENV HF_HUB_DOWNLOAD_TIMEOUT=300
+ENV HF_HUB_ETAG_TIMEOUT=60
+ENV HF_HUB_DISABLE_UPDATE_CHECK=1
+
+# ============================================================
+# 9. Diretório do checkpoint
 # ============================================================
 
 RUN mkdir -p /comfyui/models/checkpoints
 
 # ============================================================
-# 8. Download Qwen Rapid AIO
+# 10. Download Qwen Rapid AIO
 #
-# Usamos wget diretamente.
+# O HF_TOKEN vem do Secret configurado no RunPod.
 #
-# O modelo é grande, então:
-# - timeout de conexão: 60s
-# - múltiplas tentativas
-# - retry automático
-# - download direto do Hugging Face
+# NÃO colocar o token no Dockerfile.
 # ============================================================
 
-RUN URL="https://huggingface.co/Phr00t/Qwen-Image-Edit-Rapid-AIO/resolve/main/v11/Qwen-Rapid-AIO-NSFW-v11.4.safetensors" && \
-    DEST="/comfyui/models/checkpoints/Qwen-Rapid-AIO-NSFW-v11.4.safetensors" && \
-    BACKOFFS="10 20 30 60 90" && \
-    for i in 1 2 3 4 5; do \
-        echo "============================================================"; \
-        echo "Qwen Rapid AIO - tentativa $i/5"; \
-        echo "============================================================"; \
-        if wget \
-            --progress=dot:giga \
-            --timeout=60 \
-            --tries=3 \
-            --continue \
-            -O "$DEST" \
-            "$URL"; then \
-            echo "Download concluído."; \
-            break; \
-        fi; \
-        if [ "$i" -eq 5 ]; then \
-            echo "ERRO: download falhou após 5 tentativas." >&2; \
-            exit 1; \
-        fi; \
-        SLEEP=$(echo "$BACKOFFS" | cut -d ' ' -f "$i"); \
-        echo "Download falhou. Nova tentativa em ${SLEEP}s..." >&2; \
-        sleep "$SLEEP"; \
-    done
+RUN test -n "$HF_TOKEN" || \
+    (echo "ERRO: HF_TOKEN não está disponível durante o build." && exit 1)
+
+RUN echo "============================================" && \
+    echo "HUGGING FACE AUTHENTICATION" && \
+    echo "============================================" && \
+    hf auth whoami
 
 # ============================================================
-# 9. Verificação do modelo
+# Download
 # ============================================================
 
-RUN echo "============================================================" && \
-    echo "CHECKPOINT INSTALADO" && \
+RUN hf download \
+    Phr00t/Qwen-Image-Edit-Rapid-AIO \
+    Qwen-Rapid-AIO-NSFW-v11.4.safetensors \
+    --revision main \
+    --local-dir /comfyui/models/checkpoints \
+    --token "$HF_TOKEN"
+
+# ============================================================
+# 11. Verificação do modelo
+# ============================================================
+
+RUN echo "============================================" && \
+    echo "QWEN RAPID AIO" && \
     ls -lh /comfyui/models/checkpoints/Qwen-Rapid-AIO-NSFW-v11.4.safetensors && \
-    echo "============================================================"
+    echo "============================================"
 
 # ============================================================
-# 10. Verificação final
+# 12. Verificação final
 # ============================================================
 
-RUN echo "===== COMFYUI =====" && \
+RUN echo "============================================" && \
+    echo "COMFYUI" && \
     git -C /comfyui rev-parse HEAD && \
     git -C /comfyui describe --tags --always && \
-    echo "===== TORCH / CUDA =====" && \
-    python3.12 -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda)" && \
-    echo "===== CUSTOM NODES =====" && \
+    echo "============================================" && \
+    echo "PYTHON" && \
+    python3.12 --version && \
+    echo "============================================" && \
+    echo "TORCH / CUDA" && \
+    python3.12 -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available())" && \
+    echo "============================================" && \
+    echo "CUSTOM NODES" && \
     test -d /comfyui/custom_nodes/ComfyUI-Image-Saver && \
     test -d /comfyui/custom_nodes/RES4LYF && \
     test -d /comfyui/custom_nodes/rgthree-comfy && \
     test -d /comfyui/custom_nodes/ComfyUI-KJNodes && \
-    echo "Custom Nodes: OK"
+    echo "Custom Nodes: OK" && \
+    echo "============================================" && \
+    echo "MODEL" && \
+    ls -lh /comfyui/models/checkpoints/Qwen-Rapid-AIO-NSFW-v11.4.safetensors && \
+    echo "============================================"
 
 WORKDIR /comfyui
