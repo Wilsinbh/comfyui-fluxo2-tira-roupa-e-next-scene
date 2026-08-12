@@ -17,8 +17,7 @@
 #   - Qwen 2.5 VL 7B FP8
 #   - Qwen Image VAE
 #   - Next Scene LoRA v2
-#   - Unblur/Upscale LoRA
-# ============================================================
+
 
 FROM runpod/worker-comfyui:5.8.4-base
 
