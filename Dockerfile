@@ -128,7 +128,18 @@ RUN echo "============================================================" && \
 # 11. Verificação do modelo
 # ============================================================
 
+# ============================================================
+# 11. Organizar e verificar o modelo
+# ============================================================
+
 RUN echo "============================================================" && \
+    echo "ORGANIZANDO QWEN RAPID AIO" && \
+    echo "============================================================" && \
+    mv \
+    /comfyui/models/checkpoints/v11/Qwen-Rapid-AIO-NSFW-v11.4.safetensors \
+    /comfyui/models/checkpoints/Qwen-Rapid-AIO-NSFW-v11.4.safetensors && \
+    rmdir /comfyui/models/checkpoints/v11 && \
+    echo "============================================================" && \
     echo "VERIFICANDO QWEN RAPID AIO" && \
     echo "============================================================" && \
     ls -lh \
