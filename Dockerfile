@@ -1,6 +1,6 @@
 # ============================================================
-# ETAPA 1
-# RunPod ComfyUI - Base + ComfyUI v0.26.2 + Torch CUDA 13
+# ETAPA 2
+# RunPod ComfyUI + Custom Nodes
 # ============================================================
 
 FROM runpod/worker-comfyui:5.8.4-base
@@ -8,11 +8,7 @@ FROM runpod/worker-comfyui:5.8.4-base
 SHELL ["/bin/bash", "-c"]
 
 # ============================================================
-# 1. Fixar ComfyUI na versão que funcionou no Pod
-#
-# ComfyUI:
-#   v0.26.2
-#   commit 7ffd7983e72de29d90431fc746db9b41a4299d5e
+# 1. ComfyUI v0.26.2
 # ============================================================
 
 RUN cd /comfyui && \
@@ -21,11 +17,6 @@ RUN cd /comfyui && \
 
 # ============================================================
 # 2. Torch + CUDA 13.0
-#
-# Ambiente validado no Pod:
-#   torch       2.10.0+cu130
-#   torchvision 0.25.0+cu130
-#   torchaudio  2.10.0+cu130
 # ============================================================
 
 RUN pip install --no-cache-dir --force-reinstall \
@@ -35,7 +26,45 @@ RUN pip install --no-cache-dir --force-reinstall \
     --index-url https://download.pytorch.org/whl/cu130
 
 # ============================================================
-# 3. Verificação do ambiente
+# 3. ComfyUI Image Saver
+# ============================================================
+
+RUN git clone \
+    https://github.com/alexopus/ComfyUI-Image-Saver.git \
+    /comfyui/custom_nodes/ComfyUI-Image-Saver && \
+    pip install --no-cache-dir \
+    -r /comfyui/custom_nodes/ComfyUI-Image-Saver/requirements.txt
+
+# ============================================================
+# 4. RES4LYF
+# ============================================================
+
+RUN git clone \
+    https://github.com/ClownsharkBatwing/RES4LYF.git \
+    /comfyui/custom_nodes/RES4LYF && \
+    pip install --no-cache-dir \
+    -r /comfyui/custom_nodes/RES4LYF/requirements.txt
+
+# ============================================================
+# 5. rgthree-comfy
+# ============================================================
+
+RUN git clone \
+    https://github.com/rgthree/rgthree-comfy.git \
+    /comfyui/custom_nodes/rgthree-comfy
+
+# ============================================================
+# 6. ComfyUI-KJNodes
+# ============================================================
+
+RUN git clone \
+    https://github.com/kijai/ComfyUI-KJNodes.git \
+    /comfyui/custom_nodes/ComfyUI-KJNodes && \
+    pip install --no-cache-dir \
+    -r /comfyui/custom_nodes/ComfyUI-KJNodes/requirements.txt
+
+# ============================================================
+# 7. Verificação
 # ============================================================
 
 RUN echo "============================================" && \
@@ -43,11 +72,14 @@ RUN echo "============================================" && \
     git -C /comfyui rev-parse HEAD && \
     git -C /comfyui describe --tags --always && \
     echo "============================================" && \
-    echo "PYTHON" && \
-    python3.12 --version && \
-    echo "============================================" && \
     echo "TORCH / CUDA" && \
-    python3.12 -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available())" && \
+    python3.12 -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda)" && \
+    echo "============================================" && \
+    echo "CUSTOM NODES" && \
+    ls -la /comfyui/custom_nodes/ComfyUI-Image-Saver && \
+    ls -la /comfyui/custom_nodes/RES4LYF && \
+    ls -la /comfyui/custom_nodes/rgthree-comfy && \
+    ls -la /comfyui/custom_nodes/ComfyUI-KJNodes && \
     echo "============================================"
 
 WORKDIR /comfyui
