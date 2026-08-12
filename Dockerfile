@@ -1,30 +1,36 @@
 # ============================================================
-# COMFYUI SERVERLESS - FLUXO COMPLETO
+# COMFYUI SERVERLESS
+# FLUXO: QWEN IMAGE EDIT + NEXT SCENE
 #
-# ComfyUI v0.26.2
-# Torch 2.10.0 + CUDA 13.0
-# RTX Blackwell
+# Base:
+#   runpod/worker-comfyui:5.8.4-base
 #
-# Custom Nodes:
-#   - ComfyUI-Image-Saver
-#   - RES4LYF
-#   - rgthree-comfy
-#   - ComfyUI-KJNodes
+# ComfyUI:
+#   v0.26.2
 #
-
-# Models:
-#   - Qwen Rapid AIO NSFW v11.4
-#   - Qwen 2.5 VL 7B FP8
-#   - Qwen Image VAE
-#   - Next Scene LoRA v2
-
+# Python:
+#   3.12
+#
+# Torch:
+#   2.10.0 + CUDA 13.0
+#
+# GPU alvo:
+#   NVIDIA Blackwell
+#
+# ============================================================
 
 FROM runpod/worker-comfyui:5.8.4-base
 
 SHELL ["/bin/bash", "-c"]
 
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+WORKDIR /comfyui
+
 # ============================================================
-# 1. COMFYUI
+# 1. COMFYUI v0.26.2
 # ============================================================
 
 RUN cd /comfyui && \
@@ -32,7 +38,7 @@ RUN cd /comfyui && \
     git checkout v0.26.2
 
 # ============================================================
-# 2. TORCH 2.10 + CUDA 13.0
+# 2. TORCH 2.10.0 + CUDA 13.0
 # ============================================================
 
 RUN pip install --no-cache-dir --force-reinstall \
@@ -42,17 +48,35 @@ RUN pip install --no-cache-dir --force-reinstall \
     --index-url https://download.pytorch.org/whl/cu130
 
 # ============================================================
-# 3. COMFYUI IMAGE SAVER
+# 3. DESATIVAR VRAM DINÂMICA
+#
+# A RTX Pro Blackwell possui VRAM suficiente para manter
+# os modelos residentes.
+# ============================================================
+
+RUN comfy set-default /comfyui \
+    --launch-extras="--disable-dynamic-vram"
+
+# ============================================================
+# 4. COMFYUI IMAGE SAVER
+#
+# Fork correto:
+# alexopus/ComfyUI-Image-Saver
+#
+# Contém:
+# Image Saver Metadata
+# Image Saver Simple
+# etc.
 # ============================================================
 
 RUN git clone \
-    https://github.com/giriss/comfy-image-saver.git \
+    https://github.com/alexopus/ComfyUI-Image-Saver.git \
     /comfyui/custom_nodes/ComfyUI-Image-Saver && \
     pip install --no-cache-dir \
     -r /comfyui/custom_nodes/ComfyUI-Image-Saver/requirements.txt
 
 # ============================================================
-# 4. RES4LYF
+# 5. RES4LYF
 # ============================================================
 
 RUN git clone \
@@ -62,7 +86,7 @@ RUN git clone \
     -r /comfyui/custom_nodes/RES4LYF/requirements.txt
 
 # ============================================================
-# 5. RGTHREE
+# 6. RGTHREE
 # ============================================================
 
 RUN git clone \
@@ -70,7 +94,7 @@ RUN git clone \
     /comfyui/custom_nodes/rgthree-comfy
 
 # ============================================================
-# 6. KJNODES
+# 7. KJNODES
 # ============================================================
 
 RUN git clone \
@@ -80,15 +104,32 @@ RUN git clone \
     -r /comfyui/custom_nodes/ComfyUI-KJNodes/requirements.txt
 
 # ============================================================
-# 7. HUGGING FACE + XET
+# 8. SAGEATTN3
+#
+# Wheel validado no Pod:
+# torch 2.10.0 + CUDA 13.0
+# Blackwell
+# ============================================================
+
+RUN pip install --no-cache-dir \
+    "huggingface_hub[cli]"
+
+RUN hf download \
+    Seryoger/Sageattention-3-cu130-5090-endpoint \
+    sageattn3-1.0.0-cp312-cp312-linux_x86_64.whl \
+    --local-dir /tmp/sageattn3 && \
+    pip install --no-cache-dir \
+    /tmp/sageattn3/sageattn3-1.0.0-cp312-cp312-linux_x86_64.whl && \
+    rm -rf /tmp/sageattn3
+
+# ============================================================
+# 9. HF-XET
+#
+# Usado para os downloads grandes dos modelos.
 # ============================================================
 
 RUN pip install --no-cache-dir \
     "huggingface_hub[hf_xet]"
-
-# ============================================================
-# 8. DOWNLOAD PERFORMANCE
-# ============================================================
 
 ENV HF_XET_HIGH_PERFORMANCE=1
 ENV HF_XET_NUM_CONCURRENT_RANGE_GETS=64
@@ -98,7 +139,7 @@ ENV HF_HUB_ETAG_TIMEOUT=60
 ENV HF_HUB_DISABLE_UPDATE_CHECK=1
 
 # ============================================================
-# 9. DIRETÓRIOS
+# 10. DIRETÓRIOS
 # ============================================================
 
 RUN mkdir -p \
@@ -108,39 +149,38 @@ RUN mkdir -p \
     /comfyui/models/loras
 
 # ============================================================
-# 10. QWEN RAPID AIO
+# 11. QWEN RAPID AIO
+#
+# 28.4 GB
 #
 # Phr00t/Qwen-Image-Edit-Rapid-AIO
-# v11/Qwen-Rapid-AIO-NSFW-v11.4.safetensors
-#
-# ~27 GB
 # ============================================================
 
 RUN echo "============================================================" && \
-    echo "DOWNLOAD: QWEN RAPID AIO" && \
+    echo "DOWNLOAD QWEN RAPID AIO" && \
     echo "============================================================" && \
     hf download \
         Phr00t/Qwen-Image-Edit-Rapid-AIO \
         v11/Qwen-Rapid-AIO-NSFW-v11.4.safetensors \
-        --local-dir /comfyui/models/checkpoints && \
+        --local-dir /tmp/qwen-rapid && \
     mv \
-        /comfyui/models/checkpoints/v11/Qwen-Rapid-AIO-NSFW-v11.4.safetensors \
+        /tmp/qwen-rapid/v11/Qwen-Rapid-AIO-NSFW-v11.4.safetensors \
         /comfyui/models/checkpoints/Qwen-Rapid-AIO-NSFW-v11.4.safetensors && \
-    rmdir /comfyui/models/checkpoints/v11
+    rm -rf /tmp/qwen-rapid
 
 # ============================================================
-# 11. QWEN 2.5 VL 7B FP8
+# 12. QWEN 2.5 VL 7B FP8
 #
 # 9.38 GB
 #
-# Origem equivalente ao arquivo que você já utilizou.
+# art1455/QWEN
 # ============================================================
 
 RUN echo "============================================================" && \
-    echo "DOWNLOAD: QWEN 2.5 VL 7B FP8" && \
+    echo "DOWNLOAD QWEN 2.5 VL 7B FP8" && \
     echo "============================================================" && \
     hf download \
-        Cashmitki/qwen \
+        art1455/QWEN \
         qwen_2.5_vl_7b_fp8_scaled.safetensors \
         --local-dir /tmp/qwen-vl && \
     mv \
@@ -149,13 +189,15 @@ RUN echo "============================================================" && \
     rm -rf /tmp/qwen-vl
 
 # ============================================================
-# 12. QWEN IMAGE VAE
+# 13. QWEN IMAGE VAE
 #
 # 254 MB
+#
+# art1455/QWEN
 # ============================================================
 
 RUN echo "============================================================" && \
-    echo "DOWNLOAD: QWEN IMAGE VAE" && \
+    echo "DOWNLOAD QWEN IMAGE VAE" && \
     echo "============================================================" && \
     hf download \
         art1455/QWEN \
@@ -167,14 +209,15 @@ RUN echo "============================================================" && \
     rm -rf /tmp/qwen-vae
 
 # ============================================================
-# 13. NEXT SCENE LORA V2
+# 14. NEXT SCENE LORA
+#
+# 295 MB
 #
 # camenduru/Qwen-Loras
-# 295 MB
 # ============================================================
 
 RUN echo "============================================================" && \
-    echo "DOWNLOAD: NEXT SCENE LORA V2" && \
+    echo "DOWNLOAD NEXT SCENE LORA" && \
     echo "============================================================" && \
     hf download \
         camenduru/Qwen-Loras \
@@ -186,14 +229,15 @@ RUN echo "============================================================" && \
     rm -rf /tmp/next-scene
 
 # ============================================================
-# 14. UNBLUR / UPSCALE LORA
+# 15. UNBLUR / UPSCALE LORA
+#
+# 236 MB
 #
 # prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale
-# 236 MB
 # ============================================================
 
 RUN echo "============================================================" && \
-    echo "DOWNLOAD: UNBLUR / UPSCALE LORA" && \
+    echo "DOWNLOAD UNBLUR / UPSCALE LORA" && \
     echo "============================================================" && \
     hf download \
         prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale \
@@ -205,11 +249,11 @@ RUN echo "============================================================" && \
     rm -rf /tmp/unblur
 
 # ============================================================
-# 15. VERIFICAÇÃO DOS MODELOS
+# 16. VERIFICAR MODELOS
 # ============================================================
 
 RUN echo "============================================================" && \
-    echo "VERIFICANDO MODELOS" && \
+    echo "MODELOS INSTALADOS" && \
     echo "============================================================" && \
     echo "" && \
     echo "CHECKPOINTS:" && \
@@ -225,7 +269,7 @@ RUN echo "============================================================" && \
     ls -lh /comfyui/models/loras/
 
 # ============================================================
-# 16. VERIFICAÇÃO ESPECÍFICA
+# 17. VALIDAR ARQUIVOS
 # ============================================================
 
 RUN test -s \
@@ -243,33 +287,39 @@ RUN test -s \
     echo "============================================================"
 
 # ============================================================
-# 17. VERIFICAÇÃO COMFYUI
+# 18. VALIDAR COMFYUI
 # ============================================================
 
 RUN echo "============================================================" && \
-    echo "COMFYUI" && \
+    echo "COMFYUI VERSION" && \
     echo "============================================================" && \
     git -C /comfyui rev-parse HEAD && \
     git -C /comfyui describe --tags --always
 
 # ============================================================
-# 18. VERIFICAÇÃO PYTHON
+# 19. VALIDAR PYTHON
 # ============================================================
 
-RUN python3.12 --version
+RUN echo "============================================================" && \
+    echo "PYTHON" && \
+    echo "============================================================" && \
+    python3.12 --version
 
 # ============================================================
-# 19. VERIFICAÇÃO TORCH / CUDA
+# 20. VALIDAR TORCH / CUDA
 # ============================================================
 
-RUN python3.12 -c "\
+RUN echo "============================================================" && \
+    echo "TORCH / CUDA" && \
+    echo "============================================================" && \
+    python3.12 -c "\
 import torch; \
 print('Torch:', torch.__version__); \
 print('CUDA:', torch.version.cuda); \
 print('CUDA available:', torch.cuda.is_available())"
 
 # ============================================================
-# 20. VERIFICAÇÃO CUSTOM NODES
+# 21. VALIDAR CUSTOM NODES
 # ============================================================
 
 RUN echo "============================================================" && \
@@ -285,7 +335,13 @@ RUN echo "============================================================" && \
     echo "KJNodes: OK"
 
 # ============================================================
-# 21. WORKDIR
+# 22. VALIDAR SAGEATTN3
+# ============================================================
+
+RUN python3.12 -c "import sageattn3; print('sageattn3: OK')"
+
+# ============================================================
+# 23. FINAL
 # ============================================================
 
 WORKDIR /comfyui
