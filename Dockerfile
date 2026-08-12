@@ -3,14 +3,6 @@
 # ComfyUI + Torch CUDA 13
 # + Custom Nodes
 # + Qwen Rapid AIO
-#
-# Download otimizado via Hugging Face + hf-xet
-#
-# IMPORTANTE:
-# HF_TOKEN deve estar configurado no RunPod como Secret
-# com a chave:
-#
-# HF_TOKEN
 # ============================================================
 
 FROM runpod/worker-comfyui:5.8.4-base
@@ -74,16 +66,14 @@ RUN git clone \
     -r /comfyui/custom_nodes/ComfyUI-KJNodes/requirements.txt
 
 # ============================================================
-# 7. Hugging Face + Xet
-#
-# hf-xet é o mecanismo moderno de transferência do Hugging Face.
+# 7. Hugging Face + hf-xet
 # ============================================================
 
 RUN pip install --no-cache-dir \
     "huggingface_hub[hf_xet]"
 
 # ============================================================
-# 8. Configuração de download de alta performance
+# 8. Configuração de download
 # ============================================================
 
 ENV HF_XET_HIGH_PERFORMANCE=1
@@ -93,29 +83,31 @@ ENV HF_HUB_ETAG_TIMEOUT=60
 ENV HF_HUB_DISABLE_UPDATE_CHECK=1
 
 # ============================================================
-# 9. Diretório do checkpoint
+# 9. Diretório do modelo
 # ============================================================
 
 RUN mkdir -p /comfyui/models/checkpoints
 
 # ============================================================
-# 10. Download Qwen Rapid AIO
+# 10. VERIFICAR SECRET
 #
-# O HF_TOKEN vem do Secret configurado no RunPod.
+# O RunPod deve fornecer:
 #
-# NÃO colocar o token no Dockerfile.
+# HF_TOKEN={{ RUNPOD_SECRET_HF_TOKEN }}
 # ============================================================
-
-RUN test -n "$HF_TOKEN" || \
-    (echo "ERRO: HF_TOKEN não está disponível durante o build." && exit 1)
 
 RUN echo "============================================" && \
-    echo "HUGGING FACE AUTHENTICATION" && \
-    echo "============================================" && \
-    hf auth whoami
+    echo "TESTANDO HUGGING FACE TOKEN" && \
+    if [ -z "$HF_TOKEN" ]; then \
+        echo "ERRO: HF_TOKEN não foi disponibilizado pelo RunPod." >&2; \
+        exit 1; \
+    else \
+        echo "HF_TOKEN recebido pelo build."; \
+    fi && \
+    echo "============================================"
 
 # ============================================================
-# Download
+# 11. Download Qwen Rapid AIO
 # ============================================================
 
 RUN hf download \
@@ -126,38 +118,30 @@ RUN hf download \
     --token "$HF_TOKEN"
 
 # ============================================================
-# 11. Verificação do modelo
+# 12. Verificação
 # ============================================================
 
 RUN echo "============================================" && \
-    echo "QWEN RAPID AIO" && \
+    echo "QWEN RAPID AIO INSTALADO" && \
     ls -lh /comfyui/models/checkpoints/Qwen-Rapid-AIO-NSFW-v11.4.safetensors && \
     echo "============================================"
 
 # ============================================================
-# 12. Verificação final
+# 13. Verificação ComfyUI / Torch
 # ============================================================
 
-RUN echo "============================================" && \
-    echo "COMFYUI" && \
+RUN echo "===== COMFYUI =====" && \
     git -C /comfyui rev-parse HEAD && \
     git -C /comfyui describe --tags --always && \
-    echo "============================================" && \
-    echo "PYTHON" && \
+    echo "===== PYTHON =====" && \
     python3.12 --version && \
-    echo "============================================" && \
-    echo "TORCH / CUDA" && \
+    echo "===== TORCH / CUDA =====" && \
     python3.12 -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available())" && \
-    echo "============================================" && \
-    echo "CUSTOM NODES" && \
+    echo "===== CUSTOM NODES =====" && \
     test -d /comfyui/custom_nodes/ComfyUI-Image-Saver && \
     test -d /comfyui/custom_nodes/RES4LYF && \
     test -d /comfyui/custom_nodes/rgthree-comfy && \
     test -d /comfyui/custom_nodes/ComfyUI-KJNodes && \
-    echo "Custom Nodes: OK" && \
-    echo "============================================" && \
-    echo "MODEL" && \
-    ls -lh /comfyui/models/checkpoints/Qwen-Rapid-AIO-NSFW-v11.4.safetensors && \
-    echo "============================================"
+    echo "Custom Nodes: OK"
 
 WORKDIR /comfyui
